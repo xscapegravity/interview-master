@@ -1,0 +1,7 @@
+{
+  "name": "Gemini Interview Master",
+  "description": "A professional AI-powered interview agent that conducts deep-dive behavioral interviews using the Gemini Live API for real-time voice and text interaction.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
