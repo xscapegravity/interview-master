@@ -4,7 +4,7 @@ import { SetupForm } from './components/SetupForm';
 import { LiveInterview } from './components/LiveInterview';
 import { InterviewSetup } from './types';
 
-const App: React.FC = () => {
+function App() {
   const [setup, setSetup] = useState<InterviewSetup | null>(null);
   const [isStarted, setIsStarted] = useState(false);
 
@@ -57,6 +57,6 @@ const App: React.FC = () => {
       </footer>
     </div>
   );
-};
+}
 
 export default App;

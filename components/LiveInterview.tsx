@@ -47,7 +47,7 @@ async function decodeAudioData(
   return buffer;
 }
 
-export const LiveInterview: React.FC<LiveInterviewProps> = ({ setup, onEnd }) => {
+export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isConnecting, setIsConnecting] = useState(true);
   const [isActive, setIsActive] = useState(false);
@@ -192,7 +192,7 @@ export const LiveInterview: React.FC<LiveInterviewProps> = ({ setup, onEnd }) =>
               transcriptBufferRef.current = { user: '', model: '' };
             }
 
-            const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio) {
               setIsAgentSpeaking(true);
               const ctx = outputAudioContextRef.current!;

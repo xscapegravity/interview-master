@@ -6,7 +6,7 @@ interface SetupFormProps {
   onStart: (setup: InterviewSetup) => void;
 }
 
-export const SetupForm: React.FC<SetupFormProps> = ({ onStart }) => {
+export function SetupForm({ onStart }: SetupFormProps) {
   const [formData, setFormData] = useState<InterviewSetup>({
     jdUrl: '',
     resumeUrl: '',
@@ -275,4 +275,4 @@ export const SetupForm: React.FC<SetupFormProps> = ({ onStart }) => {
       `}</style>
     </div>
   );
-};
+}
