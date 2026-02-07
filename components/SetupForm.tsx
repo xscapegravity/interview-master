@@ -115,8 +115,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
         <section className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-300">Job Description URL</label>
+              <label htmlFor="jdUrl" className="text-sm font-medium text-slate-300">Job Description URL</label>
               <input
+                id="jdUrl"
                 type="url"
                 placeholder="https://linkedin.com/jobs/..."
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
@@ -125,8 +126,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-300">Resume URL (Optional)</label>
+              <label htmlFor="resumeUrl" className="text-sm font-medium text-slate-300">Resume URL (Optional)</label>
               <input
+                id="resumeUrl"
                 type="url"
                 placeholder="https://my-resume.pdf"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
@@ -137,8 +139,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Or Paste Job Description Text</label>
+            <label htmlFor="jdText" className="text-sm font-medium text-slate-300">Or Paste Job Description Text</label>
             <textarea
+              id="jdText"
               rows={3}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all resize-none text-sm"
               placeholder="Paste the full job responsibilities here..."
@@ -148,8 +151,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Or Paste Your Resume Text</label>
+            <label htmlFor="resumeText" className="text-sm font-medium text-slate-300">Or Paste Your Resume Text</label>
             <textarea
+              id="resumeText"
               rows={3}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all resize-none text-sm"
               placeholder="Paste your professional experience here..."
