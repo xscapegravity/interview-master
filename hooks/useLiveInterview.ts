@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { LiveServerMessage } from '@google/genai';
 import { InterviewSetup, Message } from '../types';
+import { generateInterviewPrompt } from '../lib/interviewPrompt';
 
 function b64decode(base64: string) {
   const binaryString = atob(base64);
@@ -151,7 +152,7 @@ export function useLiveInterview(setup: InterviewSetup) {
                     scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
 
                     let audioStarted = false;
-                    const systemInstruction = `Role: You are a Senior Interviewer... [Instructions based on setup]`;
+                    const systemInstruction = generateInterviewPrompt(setup);
 
                     scriptProcessor.onaudioprocess = (e) => {
                         if (currentVersion !== sessionVersionRef.current) return;
@@ -183,7 +184,20 @@ export function useLiveInterview(setup: InterviewSetup) {
                 ws.onmessage = async (event) => {
                     if (currentVersion !== sessionVersionRef.current) return;
 
-                    const message: LiveServerMessage = JSON.parse(event.data);
+                    const message: any = JSON.parse(event.data);
+
+                    // Handle warning and timeout messages
+                    if (message.type === 'WARNING') {
+                        console.log('⚠️ Inactivity warning:', message.message);
+                        setError(message.message);
+                        return;
+                    }
+
+                    if (message.type === 'SESSION_TIMEOUT') {
+                        console.log('❌ Session timeout:', message.message);
+                        setError(message.message);
+                        return;
+                    }
 
                     if (message.serverContent?.outputTranscription) {
                         transcriptBufferRef.current.model += message.serverContent.outputTranscription.text;

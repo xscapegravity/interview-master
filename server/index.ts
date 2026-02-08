@@ -30,6 +30,50 @@ wss.on('connection', (ws) => {
   let sessionReady = false;
   const audioQueue: any[] = [];
   let audioMessageCount = 0;
+  let inactivityTimer: NodeJS.Timeout | null = null;
+  let warningTimer: NodeJS.Timeout | null = null;
+  let lastAudioTime = Date.now();
+
+  const clearTimers = () => {
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
+    if (warningTimer) {
+      clearTimeout(warningTimer);
+      warningTimer = null;
+    }
+  };
+
+  const resetInactivityTimer = () => {
+    clearTimers();
+    lastAudioTime = Date.now();
+    
+    // Set warning timer for 20 seconds
+    warningTimer = setTimeout(() => {
+      console.log('⚠️ 20 seconds of inactivity, sending warning');
+      ws.send(JSON.stringify({ 
+        type: 'WARNING', 
+        message: 'Are you still there? The session will close in 20 seconds if there is no response.' 
+      }));
+      
+      // Set final timeout for another 20 seconds
+      inactivityTimer = setTimeout(() => {
+        console.log('❌ 40 seconds of inactivity, closing session');
+        if (geminiSession) {
+          try {
+            geminiSession.close();
+          } catch (e) {
+            console.error('Error closing Gemini session:', e);
+          }
+        }
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'SESSION_TIMEOUT', message: 'Session closed due to inactivity.' }));
+          ws.close();
+        }
+      }, 20000); // Another 20 seconds
+    }, 20000); // Initial 20 seconds
+  };
 
   ws.on('message', async (message) => {
     try {
@@ -81,17 +125,26 @@ wss.on('connection', (ws) => {
                 },
                 onmessage: (message: LiveServerMessage) => {
                   console.log('📨 Gemini message:', JSON.stringify(message).substring(0, 200));
+                  
+                  // Check if generation is complete (interviewer finished speaking)
+                  if ((message as any).serverContent?.generationComplete) {
+                    console.log('🎤 Interviewer finished speaking, starting inactivity timer');
+                    resetInactivityTimer();
+                  }
+                  
                   // Forward message from Gemini to the client
                   ws.send(JSON.stringify(message));
                 },
                 onerror: (e) => {
                   console.error('Gemini Error:', e);
+                  clearTimers();
                   ws.send(JSON.stringify({ error: 'Gemini session error.' }));
                   ws.close();
                 },
                 onclose: () => {
                   console.log('Gemini session closed');
                   sessionReady = false;
+                  clearTimers();
                   if (ws.readyState === ws.OPEN) {
                     ws.close();
                   }
@@ -107,6 +160,11 @@ wss.on('connection', (ws) => {
           }
           
       } else if (data.type === 'AUDIO') {
+          // Reset inactivity timer when user is speaking
+          if (warningTimer || inactivityTimer) {
+            clearTimers();
+          }
+          
           if (sessionReady && geminiSession) {
             // Session is ready, send immediately
             audioMessageCount++;
