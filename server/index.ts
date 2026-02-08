@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+import { INTERVIEW_SETTINGS } from './constants';
 
 dotenv.config();
 
@@ -49,17 +50,17 @@ wss.on('connection', (ws) => {
     clearTimers();
     lastAudioTime = Date.now();
     
-    // Set warning timer for 20 seconds
+    // Set warning timer
     warningTimer = setTimeout(() => {
-      console.log('⚠️ 20 seconds of inactivity, sending warning');
+      console.log(`⚠️ ${INTERVIEW_SETTINGS.INACTIVITY_WARNING_MS / 1000} seconds of inactivity, sending warning`);
       ws.send(JSON.stringify({ 
         type: 'WARNING', 
-        message: 'Are you still there? The session will close in 20 seconds if there is no response.' 
+        message: `Are you still there? The session will close in ${INTERVIEW_SETTINGS.SESSION_TIMEOUT_MS / 1000} seconds if there is no response.` 
       }));
       
-      // Set final timeout for another 20 seconds
+      // Set final timeout
       inactivityTimer = setTimeout(() => {
-        console.log('❌ 40 seconds of inactivity, closing session');
+        console.log(`❌ ${INTERVIEW_SETTINGS.SESSION_TIMEOUT_MS / 1000} seconds since warning, closing session`);
         if (geminiSession) {
           try {
             geminiSession.close();
@@ -71,8 +72,8 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'SESSION_TIMEOUT', message: 'Session closed due to inactivity.' }));
           ws.close();
         }
-      }, 20000); // Another 20 seconds
-    }, 20000); // Initial 20 seconds
+      }, INTERVIEW_SETTINGS.SESSION_TIMEOUT_MS);
+    }, INTERVIEW_SETTINGS.INACTIVITY_WARNING_MS);
   };
 
   ws.on('message', async (message) => {
@@ -88,7 +89,7 @@ wss.on('connection', (ws) => {
           try {
             // Create the Gemini session with the system instruction
             const sessionPromise = ai.live.connect({
-              model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+              model: INTERVIEW_SETTINGS.MODEL_ID,
               config: {
                 responseModalities: [Modality.AUDIO],
                 systemInstruction: data.payload,
@@ -114,7 +115,7 @@ wss.on('connection', (ws) => {
                       session.sendRealtimeInput({
                         media: {
                           data: audioData,
-                          mimeType: 'audio/pcm;rate=16000'
+                          mimeType: `audio/pcm;rate=${INTERVIEW_SETTINGS.INPUT_SAMPLE_RATE}`
                         }
                       });
                     }
@@ -174,7 +175,7 @@ wss.on('connection', (ws) => {
             geminiSession.sendRealtimeInput({
               media: {
                 data: data.payload,
-                mimeType: 'audio/pcm;rate=16000'
+                mimeType: `audio/pcm;rate=${INTERVIEW_SETTINGS.INPUT_SAMPLE_RATE}`
               }
             });
           } else {

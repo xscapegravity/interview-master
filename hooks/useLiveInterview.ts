@@ -28,6 +28,7 @@ export function useLiveInterview(setup: InterviewSetup) {
     const [isActive, setIsActive] = useState(false);
     const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [micLevel, setMicLevel] = useState(0);
 
     const wsRef = useRef<WebSocket | null>(null);
     const transcriptBufferRef = useRef({ user: '', model: '' });
@@ -54,6 +55,8 @@ export function useLiveInterview(setup: InterviewSetup) {
         const outputAudioSources = new Set<AudioBufferSourceNode>();
         let nextStartTime = 0;
         let ws: WebSocket | null = null;
+        let micAnalyser: AnalyserNode | null = null;
+        let micAnimationFrame: number | null = null;
 
         const cleanup = () => {
             setIsActive(false);
@@ -92,6 +95,11 @@ export function useLiveInterview(setup: InterviewSetup) {
                 console.log(`🔴 Closing outputAudioContext for version ${currentVersion}`);
                 outputAudioContext.close();
             }
+            if (micAnimationFrame) {
+                cancelAnimationFrame(micAnimationFrame);
+                micAnimationFrame = null;
+            }
+            setMicLevel(0);
             outputAudioSources.forEach(s => { try { s.stop(); } catch (e) {} });
             outputAudioSources.clear();
         };
@@ -147,7 +155,9 @@ export function useLiveInterview(setup: InterviewSetup) {
                         return;
                     }
 
-                    // 3. Start processing microphone audio FIRST
+                    // 3. Start processing microphone audio
+                    // NOTE: ScriptProcessorNode is deprecated but used here for cross-browser simplicity.
+                    // For production high-performance audio, migration to AudioWorkletNode is recommended.
                     mediaStreamSource = inputAudioContext.createMediaStreamSource(stream);
                     scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
 
@@ -176,6 +186,23 @@ export function useLiveInterview(setup: InterviewSetup) {
 
                     mediaStreamSource.connect(scriptProcessor);
                     scriptProcessor.connect(inputAudioContext.destination);
+                    
+                    // Set up microphone level monitoring
+                    micAnalyser = inputAudioContext.createAnalyser();
+                    micAnalyser.fftSize = 256;
+                    mediaStreamSource.connect(micAnalyser);
+                    
+                    const micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+                    const updateMicLevel = () => {
+                        if (currentVersion !== sessionVersionRef.current || !micAnalyser) return;
+                        
+                        micAnalyser.getByteFrequencyData(micDataArray);
+                        const average = micDataArray.reduce((a, b) => a + b) / micDataArray.length;
+                        setMicLevel(average);
+                        
+                        micAnimationFrame = requestAnimationFrame(updateMicLevel);
+                    };
+                    updateMicLevel();
                     
                     setIsConnecting(false);
                     setIsActive(true);
@@ -293,5 +320,5 @@ export function useLiveInterview(setup: InterviewSetup) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setup]);
 
-    return { messages, isConnecting, isActive, isAgentSpeaking, error, endSession };
+    return { messages, isConnecting, isActive, isAgentSpeaking, error, micLevel, endSession };
 }

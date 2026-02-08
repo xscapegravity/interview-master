@@ -21,7 +21,7 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
       {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
+      <header className="flex-shrink-0 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
@@ -43,16 +43,18 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center p-6">
+      <main className="flex-1 flex flex-col items-center p-4 md:p-8">
         {!isStarted ? (
           <SetupForm onStart={handleStartInterview} />
         ) : (
-          setup && <LiveInterview setup={setup} onEnd={handleReset} />
+          <div className="w-full max-w-7xl flex-1 flex flex-col min-h-0">
+            {setup && <LiveInterview setup={setup} onEnd={handleReset} />}
+          </div>
         )}
       </main>
 
       {/* Footer */}
-      <footer className="py-6 text-center text-slate-500 text-sm border-t border-slate-800">
+      <footer className="flex-shrink-0 py-4 text-center text-slate-500 text-sm border-t border-slate-800">
         &copy; {new Date().getFullYear()} InterviewMaster AI • Powered by Gemini 2.5
       </footer>
     </div>

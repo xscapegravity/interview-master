@@ -10,6 +10,7 @@
 
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -22,4 +23,54 @@
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   @apply bg-slate-600;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-always-x {
+  overflow-x: scroll !important;
+}
+
+.scrollbar-always-x::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-always-x::-webkit-scrollbar-track {
+  @apply bg-slate-800/50;
+}
+
+.scrollbar-always-x::-webkit-scrollbar-thumb {
+  @apply bg-slate-600 rounded-full;
+}
+
+.scrollbar-always-x::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-500;
+}
+
+.scrollbar-always-y {
+  overflow-y: scroll !important;
+}
+
+.scrollbar-always-y::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-always-y::-webkit-scrollbar-track {
+  @apply bg-slate-800/50;
+}
+
+.scrollbar-always-y::-webkit-scrollbar-thumb {
+  @apply bg-indigo-600 rounded-full;
+}
+
+.scrollbar-always-y::-webkit-scrollbar-thumb:hover {
+  @apply bg-indigo-500;
 }
