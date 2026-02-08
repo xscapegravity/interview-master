@@ -3,6 +3,13 @@ instance_class: F1
 handlers:
   - url: /assets
     static_dir: dist/assets
+    http_headers:
+      X-Content-Type-Options: "nosniff"
   - url: /.*
     static_files: dist/index.html
     upload: dist/index.html
+    http_headers:
+      X-Frame-Options: "DENY"
+      X-Content-Type-Options: "nosniff"
+      Referrer-Policy: "strict-origin-when-cross-origin"
+      Strict-Transport-Security: "max-age=31536000; includeSubDomains"

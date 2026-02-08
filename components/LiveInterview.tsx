@@ -62,8 +62,8 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const sessionRef = useRef<any>(null);
   const transcriptBufferRef = useRef({ user: '', model: '' });
-
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sessionVersionRef = useRef(0);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -106,17 +106,23 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
     URL.revokeObjectURL(url);
   }, [messages, setup]);
 
-  const startSession = useCallback(async () => {
+  const startSession = useCallback(async (version: number) => {
     try {
       const apiKey = process.env.API_KEY;
       if (!apiKey) throw new Error("API Key not found");
 
       const ai = new GoogleGenAI({ apiKey });
 
-      inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      if (version !== sessionVersionRef.current) {
+        inCtx.close();
+        outCtx.close();
+        return;
+      }
 
       const systemInstruction = `
         Role: You are a Senior Interviewer and Active Listener. Your goal is to conduct a deep-dive behavioral interview based on the provided Job Description (JD) and Candidate Resume.
@@ -145,13 +151,15 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
+            if (version !== sessionVersionRef.current) return;
             setIsConnecting(false);
             setIsActive(true);
             
-            const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-            const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
+            const source = inCtx.createMediaStreamSource(stream);
+            const scriptProcessor = inCtx.createScriptProcessor(4096, 1, 1);
             
             scriptProcessor.onaudioprocess = (e) => {
+              if (version !== sessionVersionRef.current) return;
               const inputData = e.inputBuffer.getChannelData(0);
               const l = inputData.length;
               const int16 = new Int16Array(l);
@@ -164,14 +172,16 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
               };
 
               sessionPromise.then(session => {
+                if (version !== sessionVersionRef.current) return;
                 session.sendRealtimeInput({ media: pcmBlob });
               });
             };
 
             source.connect(scriptProcessor);
-            scriptProcessor.connect(inputAudioContextRef.current!.destination);
+            scriptProcessor.connect(inCtx.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
+            if (version !== sessionVersionRef.current) return;
             if (message.serverContent?.outputTranscription) {
               transcriptBufferRef.current.model += message.serverContent.outputTranscription.text;
             } else if (message.serverContent?.inputTranscription) {
@@ -195,7 +205,7 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
             const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio) {
               setIsAgentSpeaking(true);
-              const ctx = outputAudioContextRef.current!;
+              const ctx = outCtx;
               if (ctx.state === 'closed') return;
 
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
@@ -227,10 +237,12 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
             }
           },
           onerror: (e) => {
+            if (version !== sessionVersionRef.current) return;
             console.error('Gemini Error:', e);
             setError('The interview session was interrupted. Please try again.');
           },
           onclose: () => {
+            if (version !== sessionVersionRef.current) return;
             setIsActive(false);
           }
         },
@@ -245,9 +257,20 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
         }
       });
 
-      sessionRef.current = await sessionPromise;
+      const session = await sessionPromise;
+      if (version !== sessionVersionRef.current) {
+        session.close();
+        inCtx.close();
+        outCtx.close();
+        return;
+      }
+
+      sessionRef.current = session;
+      inputAudioContextRef.current = inCtx;
+      outputAudioContextRef.current = outCtx;
 
     } catch (err: any) {
+      if (version !== sessionVersionRef.current) return;
       console.error(err);
       setError(err.message || 'Failed to initialize AI Interviewer');
       setIsConnecting(false);
@@ -255,16 +278,21 @@ export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
   }, [setup]);
 
   useEffect(() => {
-    startSession();
+    const version = ++sessionVersionRef.current;
+    startSession(version);
     return () => {
+      sessionVersionRef.current++; // Invalidate current session
       if (sessionRef.current) {
         try { sessionRef.current.close(); } catch (e) {}
+        sessionRef.current = null;
       }
-      if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
+      if (inputAudioContextRef.current) {
         try { inputAudioContextRef.current.close(); } catch (e) {}
+        inputAudioContextRef.current = null;
       }
-      if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
+      if (outputAudioContextRef.current) {
         try { outputAudioContextRef.current.close(); } catch (e) {}
+        outputAudioContextRef.current = null;
       }
     };
   }, [startSession]);
