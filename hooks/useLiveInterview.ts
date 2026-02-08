@@ -1,18 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+import { LiveServerMessage } from '@google/genai';
 import { InterviewSetup, Message } from '../types';
 
-// Utility functions for audio encoding/decoding
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-function decode(base64: string) {
+function b64decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
@@ -22,25 +12,14 @@ function decode(base64: string) {
   return bytes;
 }
 
-async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+function b64encode(bytes: Uint8Array) {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
     }
-  }
-  return buffer;
+    return btoa(binary);
 }
-
 
 export function useLiveInterview(setup: InterviewSetup) {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -49,214 +28,256 @@ export function useLiveInterview(setup: InterviewSetup) {
     const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const inputAudioContextRef = useRef<AudioContext | null>(null);
-    const outputAudioContextRef = useRef<AudioContext | null>(null);
-    const nextStartTimeRef = useRef<number>(0);
-    const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-    const sessionRef = useRef<any>(null);
+    const wsRef = useRef<WebSocket | null>(null);
     const transcriptBufferRef = useRef({ user: '', model: '' });
     const sessionVersionRef = useRef(0);
-    const streamRef = useRef<MediaStream | null>(null);
 
-
+    // The endSession function is now stable and can be safely returned
     const endSession = useCallback(() => {
-        sessionVersionRef.current++; // Invalidate current session
-        if (sessionRef.current) {
-            try { sessionRef.current.close(); } catch (e) { console.error("Error closing session:", e); }
-            sessionRef.current = null;
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.close();
         }
-        if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
-            try { inputAudioContextRef.current.close(); } catch (e) { console.error("Error closing input audio context:", e); }
-            inputAudioContextRef.current = null;
-        }
-        if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
-            try { outputAudioContextRef.current.close(); } catch (e) { console.error("Error closing output audio context:", e); }
-            outputAudioContextRef.current = null;
-        }
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-        sourcesRef.current.forEach(s => {
-            try { s.stop(); } catch (e) {}
-        });
-        sourcesRef.current.clear();
-        setIsActive(false);
     }, []);
 
-    const startSession = useCallback(async (version: number) => {
-        try {
-            const apiKey = process.env.API_KEY;
-            if (!apiKey) throw new Error("API Key not found");
+    useEffect(() => {
+        // Use the current version (don't increment yet)
+        const currentVersion = sessionVersionRef.current;
+        console.log(`🔵 [useLiveInterview] Starting session version ${currentVersion}`);
+        
+        // === All logic is now self-contained in this effect ===
+        let inputAudioContext: AudioContext | null = null;
+        let outputAudioContext: AudioContext | null = null;
+        let scriptProcessor: ScriptProcessorNode | null = null;
+        let mediaStreamSource: MediaStreamAudioSourceNode | null = null;
+        let stream: MediaStream | null = null;
+        const outputAudioSources = new Set<AudioBufferSourceNode>();
+        let nextStartTime = 0;
+        let ws: WebSocket | null = null;
 
-            const ai = new GoogleGenAI({ apiKey });
+        const cleanup = () => {
+            setIsActive(false);
+            setIsConnecting(false);
 
-            const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-            const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            if (version !== sessionVersionRef.current) {
-                inCtx.close();
-                outCtx.close();
-                stream.getTracks().forEach(track => track.stop());
-                return;
+            if (ws) {
+                ws.onopen = null;
+                ws.onmessage = null;
+                ws.onerror = null;
+                ws.onclose = null;
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.close();
+                }
+                ws = null;
             }
-            streamRef.current = stream;
-            inputAudioContextRef.current = inCtx;
-            outputAudioContextRef.current = outCtx;
+            if (wsRef.current === ws) {
+                wsRef.current = null;
+            }
+            if (scriptProcessor) {
+                scriptProcessor.disconnect();
+                scriptProcessor = null;
+            }
+            if (mediaStreamSource) {
+                mediaStreamSource.disconnect();
+                mediaStreamSource = null;
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            if (inputAudioContext && inputAudioContext.state !== 'closed') {
+                console.log(`🔴 Closing inputAudioContext for version ${currentVersion}`);
+                inputAudioContext.close();
+            }
+            if (outputAudioContext && outputAudioContext.state !== 'closed') {
+                console.log(`🔴 Closing outputAudioContext for version ${currentVersion}`);
+                outputAudioContext.close();
+            }
+            outputAudioSources.forEach(s => { try { s.stop(); } catch (e) {} });
+            outputAudioSources.clear();
+        };
 
-            const systemInstruction = `
-              Role: You are a Senior Interviewer and Active Listener. Your goal is to conduct a deep-dive behavioral interview based on the provided Job Description (JD) and Candidate Resume.
-              CONTEXT:
-              JD Text: ${setup.jdText || 'Refer to provided URL'}
-              JD URL: ${setup.jdUrl}
-              Resume Text: ${setup.resumeText || 'Refer to provided URL'}
-              Resume URL: ${setup.resumeUrl}
-              OBJECTIVE: Deeply understand the interviewee’s experience, thinking, and motivations. You are not "testing" them; you are uncovering their story.
-              CORE CONSTRAINTS:
-              1. One Question at a Time: Never ask "double-barreled" or multiple questions in one turn.
-              2. Wait for Response: Do not move to a new topic until the current question is fully addressed.
-              3. Reflect and Validate: Before moving to a new question, briefly summarize or reflect back what you heard to show active listening.
-              4. No Advice: Do not give feedback or advice unless the user explicitly asks for it.
-              5. Tone: Calm, professional, curious, and empathetic.
-              EXECUTION:
-              State: "I've reviewed the roles. Let's begin. The purpose of this interview is to understand the 'how' and 'why' behind your journey."
-              Then start with one open-ended warm-up question.
-            `;
+        const connect = async () => {
+            try {
+                // Check if this version is still current
+                if (currentVersion !== sessionVersionRef.current) {
+                    console.log(`Session version ${currentVersion} cancelled before WebSocket creation`);
+                    return;
+                }
 
-            const sessionPromise = ai.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-                callbacks: {
-                    onopen: () => {
-                        if (version !== sessionVersionRef.current) return;
-                        setIsConnecting(false);
-                        setIsActive(true);
+                // Small delay to allow React StrictMode cleanup to run first
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                // Check again after delay
+                if (currentVersion !== sessionVersionRef.current) {
+                    console.log(`Session version ${currentVersion} cancelled after delay`);
+                    return;
+                }
+
+                // 1. Set up WebSocket
+                ws = new WebSocket('ws://localhost:3001');
+
+                ws.onopen = async () => {
+                    // Check if this version is still current
+                    if (currentVersion !== sessionVersionRef.current) {
+                        console.log(`Session version ${currentVersion} cancelled at onopen`);
+                        ws?.close();
+                        return;
+                    }
+
+                    console.log(`Connected to WebSocket server (version ${currentVersion})`);
+                    wsRef.current = ws;
+                    
+                    // 2. Set up Audio
+                    console.log(`🟢 Creating AudioContexts for version ${currentVersion}`);
+                    inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+                    outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                    // Check again after async operation
+                    if (currentVersion !== sessionVersionRef.current) {
+                        console.log(`Session version ${currentVersion} cancelled after getUserMedia`);
+                        cleanup();
+                        return;
+                    }
+
+                    // Check if WebSocket is still open
+                    if (ws?.readyState !== WebSocket.OPEN) {
+                        console.log(`WebSocket closed during setup, aborting audio initialization`);
+                        cleanup();
+                        return;
+                    }
+
+                    // 3. Start processing microphone audio FIRST
+                    mediaStreamSource = inputAudioContext.createMediaStreamSource(stream);
+                    scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
+
+                    let audioStarted = false;
+                    const systemInstruction = `Role: You are a Senior Interviewer... [Instructions based on setup]`;
+
+                    scriptProcessor.onaudioprocess = (e) => {
+                        if (currentVersion !== sessionVersionRef.current) return;
+                        if (ws?.readyState !== WebSocket.OPEN) return;
                         
-                        const source = inCtx.createMediaStreamSource(stream);
-                        const scriptProcessor = inCtx.createScriptProcessor(4096, 1, 1);
+                        // Send INITIAL_SETUP on first audio buffer to ensure audio is flowing
+                        if (!audioStarted) {
+                            audioStarted = true;
+                            console.log('🎤 Audio pipeline active, sending INITIAL_SETUP');
+                            ws?.send(JSON.stringify({ type: 'INITIAL_SETUP', payload: systemInstruction }));
+                        }
                         
-                        scriptProcessor.onaudioprocess = (e) => {
-                          if (version !== sessionVersionRef.current || !sessionRef.current) return;
-                          const inputData = e.inputBuffer.getChannelData(0);
-                          const l = inputData.length;
-                          const int16 = new Int16Array(l);
-                          for (let i = 0; i < l; i++) {
+                        const inputData = e.inputBuffer.getChannelData(0);
+                        const int16 = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
                             int16[i] = inputData[i] * 32768;
-                          }
-                          const pcmBlob = {
-                            data: encode(new Uint8Array(int16.buffer)),
-                            mimeType: 'audio/pcm;rate=16000',
-                          };
-                          sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                        }
+                        const pcmBase64 = b64encode(new Uint8Array(int16.buffer));
+                        ws?.send(JSON.stringify({ type: 'AUDIO', payload: pcmBase64 }));
+                    };
+
+                    mediaStreamSource.connect(scriptProcessor);
+                    scriptProcessor.connect(inputAudioContext.destination);
+                    
+                    setIsConnecting(false);
+                    setIsActive(true);
+                };
+
+                ws.onmessage = async (event) => {
+                    if (currentVersion !== sessionVersionRef.current) return;
+
+                    const message: LiveServerMessage = JSON.parse(event.data);
+
+                    if (message.serverContent?.outputTranscription) {
+                        transcriptBufferRef.current.model += message.serverContent.outputTranscription.text;
+                    } else if (message.serverContent?.inputTranscription) {
+                        transcriptBufferRef.current.user += message.serverContent.inputTranscription.text;
+                    }
+
+                    if (message.serverContent?.turnComplete) {
+                        const {user, model} = transcriptBufferRef.current;
+                        setMessages(prev => {
+                            const newMsgs = [...prev];
+                            if (user.trim()) newMsgs.push({ role: 'user', text: user, timestamp: Date.now() });
+                            if (model.trim()) newMsgs.push({ role: 'model', text: model, timestamp: Date.now() });
+                            return newMsgs;
+                        });
+                        transcriptBufferRef.current = { user: '', model: '' };
+                    }
+
+                    const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                    if (base64Audio && outputAudioContext) {
+                        setIsAgentSpeaking(true);
+                        const ctx = outputAudioContext;
+                        nextStartTime = Math.max(nextStartTime, ctx.currentTime);
+                        
+                        // Simplified audio decoding
+                        const decodedBytes = b64decode(base64Audio);
+                        const audioData = new Int16Array(decodedBytes.buffer);
+                        const frameCount = audioData.length;
+                        const audioBuffer = ctx.createBuffer(1, frameCount, 24000);
+                        const channelData = audioBuffer.getChannelData(0);
+                        for (let i = 0; i < frameCount; i++) {
+                            channelData[i] = audioData[i] / 32768.0;
+                        }
+
+                        const source = ctx.createBufferSource();
+                        source.buffer = audioBuffer;
+                        source.connect(ctx.destination);
+                        
+                        source.onended = () => {
+                            outputAudioSources.delete(source);
+                            if (outputAudioSources.size === 0) {
+                                setIsAgentSpeaking(false);
+                            }
                         };
 
-                        source.connect(scriptProcessor);
-                        scriptProcessor.connect(inCtx.destination);
-                    },
-                    onmessage: async (message: LiveServerMessage) => {
-                        if (version !== sessionVersionRef.current) return;
-                        if (message.serverContent?.outputTranscription) {
-                            transcriptBufferRef.current.model += message.serverContent.outputTranscription.text;
-                        } else if (message.serverContent?.inputTranscription) {
-                            transcriptBufferRef.current.user += message.serverContent.inputTranscription.text;
-                        }
-
-                        if (message.serverContent?.turnComplete) {
-                            const userText = transcriptBufferRef.current.user;
-                            const modelText = transcriptBufferRef.current.model;
-                            
-                            setMessages(prev => {
-                                const newMsgs = [...prev];
-                                if (userText.trim()) newMsgs.push({ role: 'user', text: userText, timestamp: Date.now() });
-                                if (modelText.trim()) newMsgs.push({ role: 'model', text: modelText, timestamp: Date.now() });
-                                return newMsgs;
-                            });
-
-                            transcriptBufferRef.current = { user: '', model: '' };
-                        }
-
-                        const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                        if (base64Audio) {
-                            setIsAgentSpeaking(true);
-                            const ctx = outputAudioContextRef.current;
-                            if (!ctx || ctx.state === 'closed') return;
-
-                            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-                            
-                            const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
-                            const source = ctx.createBufferSource();
-                            source.buffer = audioBuffer;
-                            source.connect(ctx.destination);
-                            
-                            source.addEventListener('ended', () => {
-                                sourcesRef.current.delete(source);
-                                if (sourcesRef.current.size === 0) {
-                                    setIsAgentSpeaking(false);
-                                }
-                            });
-
-                            source.start(nextStartTimeRef.current);
-                            nextStartTimeRef.current += audioBuffer.duration;
-                            sourcesRef.current.add(source);
-                        }
-
-                        if (message.serverContent?.interrupted) {
-                            sourcesRef.current.forEach(s => {
-                                try { s.stop(); } catch (e) {}
-                            });
-                            sourcesRef.current.clear();
-                            nextStartTimeRef.current = 0;
-                            setIsAgentSpeaking(false);
-                        }
-                    },
-                    onerror: (e) => {
-                        if (version !== sessionVersionRef.current) return;
-                        console.error('Gemini Error:', e);
-                        setError('The interview session was interrupted. Please try again.');
-                        endSession();
-                    },
-                    onclose: () => {
-                        if (version !== sessionVersionRef.current) return;
-                        setIsActive(false);
+                        source.start(nextStartTime);
+                        nextStartTime += audioBuffer.duration;
+                        outputAudioSources.add(source);
                     }
-                },
-                config: {
-                    responseModalities: [Modality.AUDIO],
-                    systemInstruction: systemInstruction,
-                    speechConfig: {
-                        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
-                    },
-                    outputAudioTranscription: {},
-                    inputAudioTranscription: {},
-                }
-            });
+                     if (message.serverContent?.interrupted) {
+                        outputAudioSources.forEach(s => { try { s.stop(); } catch (e) {} });
+                        outputAudioSources.clear();
+                        nextStartTime = 0;
+                        setIsAgentSpeaking(false);
+                    }
+                };
 
-            const session = await sessionPromise;
-            if (version !== sessionVersionRef.current) {
-                session.close();
-                stream.getTracks().forEach(track => track.stop());
-                inCtx.close();
-                outCtx.close();
-                return;
+                ws.onerror = (err) => {
+                    if (currentVersion !== sessionVersionRef.current) return;
+                    console.error("WebSocket Error:", err);
+                    setError("Connection failed. Please ensure the server is running.");
+                    cleanup();
+                };
+
+                ws.onclose = () => {
+                    if (currentVersion !== sessionVersionRef.current) return;
+                    console.log(`WebSocket connection closed (version ${currentVersion})`);
+                    cleanup();
+                };
+
+            } catch (err: any) {
+                if (currentVersion !== sessionVersionRef.current) return;
+                console.error("Failed to initialize interview:", err);
+                setError(err.message || "Failed to initialize interview session.");
+                cleanup();
             }
-            sessionRef.current = session;
-
-        } catch (err: any) {
-            if (version !== sessionVersionRef.current) return;
-            console.error(err);
-            setError(err.message || 'Failed to initialize AI Interviewer');
-            setIsConnecting(false);
-        }
-    }, [setup, endSession]);
-
-    useEffect(() => {
-        const version = ++sessionVersionRef.current;
-        startSession(version);
-        return () => {
-            endSession();
         };
-    }, [startSession, endSession]);
+
+        connect();
+
+        return () => {
+            // Only invalidate if this cleanup is for the currently active version
+            if (currentVersion === sessionVersionRef.current) {
+                sessionVersionRef.current++;
+                console.log(`🔴 Cleanup called for CURRENT version ${currentVersion}, incrementing to ${sessionVersionRef.current}`);
+            } else {
+                console.log(`🟡 Cleanup called for OLD version ${currentVersion}, current is ${sessionVersionRef.current} (no increment)`);
+            }
+            cleanup();
+        };
+
+    // We only want this effect to re-run if the core interview setup changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [setup]);
 
     return { messages, isConnecting, isActive, isAgentSpeaking, error, endSession };
 }
