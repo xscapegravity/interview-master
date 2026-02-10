@@ -50,6 +50,20 @@ export function useLiveInterview(setup: InterviewSetup) {
         }
     }, []);
 
+    const sendTextMessage = useCallback((text: string) => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            console.log("📝 Sending user text message:", text);
+            
+            // Add to messages locally for optimistic UI
+            setMessages(prev => [...prev, { role: 'user', text, timestamp: Date.now() }]);
+            
+            wsRef.current.send(JSON.stringify({ 
+                type: 'TEXT', 
+                payload: text
+            }));
+        }
+    }, []);
+
     const sendFeedbackRequest = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             console.log("📝 Sending feedback request to model");
@@ -62,28 +76,44 @@ export function useLiveInterview(setup: InterviewSetup) {
                 scriptProcessorRef.current.onaudioprocess = null;
             }
             
-            // Fix #2: Improved structured feedback prompt
-            const feedbackPrompt = `The candidate has requested to end the interview and receive feedback.
+            // Enhanced Feedback Prompt for Genuine & Critical Evaluation
+            const feedbackPrompt = `### ABSOLUTE COMMAND: 
+The interview has concluded. You must now output the final evaluation report.
 
-Please respond in TWO parts:
+### ZERO-TOLERANCE RULES:
+1. **NO META-COMMENTARY**: Do NOT explain your reasoning. Do NOT say things like "Analyzing...", "Evaluating...", "I am now...", or "Drafting...".
+2. **NO INTERNAL MONOLOGUE**: Do NOT use bolded headers to describe your thoughts or actions.
+3. **NO INTRODUCTIONS**: Do not start with "Here is the feedback..." or "Based on the conversation...". 
+4. **START DIRECTLY**: Your very first words must be "1. **CONCLUSION**".
+5. **CRITICAL HONESTY**: If the session was too short (under 2 minutes or only introductions), you MUST label strengths as "Insufficient data - interview ended prematurely" and communicate this as a failed/aborted session.
 
-1. CONCLUSION: First, naturally conclude the interview. Thank them for their time and say goodbye.
+### OUTPUT FORMAT:
 
-2. FEEDBACK: Then provide structured feedback in this exact format:
+1. **CONCLUSION**
+[A professional closing statement spoken directly to the candidate.]
+
+2. **FEEDBACK**
 
 **STRENGTHS:**
-- [Strength 1]
-- [Strength 2]
+- [Actual strength with evidence, or "No strengths demonstrated" if the session was too short.]
 
 **AREAS FOR IMPROVEMENT:**
-- [Area 1]
-- [Area 2]
+- [Actual areas for improvement, or "Candidate ended the session prematurely" if session was too short.]
 
-Keep the feedback professional, specific, and constructive.`;
+**Evaluation Dimensions (Honest assessment or N/A):**
+- Technical Depth: 
+- Problem Solving: 
+- Communication: 
+- Role Alignment: 
+
+**CRITICAL SUMMARY**: [A 1-sentence blunt assessment of the candidate's performance or the session validity.]
+
+Perform this now. Start with the Conclusion.`;
             
             wsRef.current.send(JSON.stringify({ 
                 type: 'TEXT', 
-                payload: feedbackPrompt
+                payload: feedbackPrompt,
+                isFeedback: true
             }));
             
             // Reset feedback tracking refs
@@ -214,8 +244,19 @@ Keep the feedback professional, specific, and constructive.`;
 
                     console.log(`Connected to WebSocket server (version ${currentVersion})`);
                     wsRef.current = ws;
+
+                    const systemInstruction = generateInterviewPrompt(setup);
+
+                    // If in text mode, we don't need microphone/audio processing
+                    if (setup.mode === 'text') {
+                        console.log('📝 Text mode active, skipping microphone setup');
+                        ws?.send(JSON.stringify({ type: 'INITIAL_SETUP', payload: systemInstruction }));
+                        setIsConnecting(false);
+                        setIsActive(true);
+                        return;
+                    }
                     
-                    // 2. Set up Audio
+                    // 2. Set up Audio for voice mode
                     console.log(`🟢 Creating AudioContexts for version ${currentVersion}`);
                     inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
                     outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -243,7 +284,6 @@ Keep the feedback professional, specific, and constructive.`;
                     scriptProcessorRef.current = scriptProcessor;
 
                     let audioStarted = false;
-                    const systemInstruction = generateInterviewPrompt(setup);
 
                     scriptProcessor.onaudioprocess = (e) => {
                         if (currentVersion !== sessionVersionRef.current) return;
@@ -453,5 +493,5 @@ Keep the feedback professional, specific, and constructive.`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setup]);
 
-    return { messages, isConnecting, isActive, isAgentSpeaking, error, micLevel, endSession, sendFeedbackRequest, isFeedbackRequested, isFeedbackComplete, feedbackTimeout };
+    return { messages, isConnecting, isActive, isAgentSpeaking, error, micLevel, endSession, sendTextMessage, sendFeedbackRequest, isFeedbackRequested, isFeedbackComplete, feedbackTimeout };
 }

@@ -8,8 +8,9 @@ interface LiveInterviewProps {
 }
 
 export function LiveInterview({ setup, onEnd }: LiveInterviewProps) {
-  const { messages, isConnecting, isActive, isAgentSpeaking, error, micLevel, endSession, sendFeedbackRequest, isFeedbackRequested, isFeedbackComplete, feedbackTimeout } = useLiveInterview(setup);
+  const { messages, isConnecting, isActive, isAgentSpeaking, error, micLevel, endSession, sendTextMessage, sendFeedbackRequest, isFeedbackRequested, isFeedbackComplete, feedbackTimeout } = useLiveInterview(setup);
   const [showExitModal, setShowExitModal] = useState(false);
+  const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -82,6 +83,14 @@ ${'='.repeat(59)}\n\n`;
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, [messages, setup, isFeedbackRequested]);
+
+  const handleSendMessage = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!inputText.trim() || !isActive || isFeedbackRequested) return;
+    
+    sendTextMessage(inputText.trim());
+    setInputText('');
+  };
 
   const handleEndSessionClick = () => {
     // Only show modal, don't end session yet
@@ -380,26 +389,51 @@ ${'='.repeat(59)}\n\n`;
         </div>
       </div>
 
-      {/* Voice Visualizer Overlay / Control Bar */}
-      {isActive && setup.mode === 'voice' && !isConnecting && (
-        <div className="h-20 px-6 py-4 bg-slate-900/80 backdrop-blur-sm border-t border-slate-700 flex items-center justify-center">
-          <div className="flex items-center gap-4">
-            <div className={`flex items-end gap-1 h-8 ${isAgentSpeaking ? 'text-indigo-400' : 'text-slate-500'}`}>
-              {[...Array(5)].map((_, i) => (
-                <div 
-                  key={i} 
-                  className={`w-1.5 rounded-full transition-all duration-150 ${isAgentSpeaking ? 'animate-bounce' : ''}`}
-                  style={{ 
-                    height: isAgentSpeaking ? `${Math.random() * 20 + 10}px` : '4px',
-                    animationDelay: isAgentSpeaking ? `${i * 0.1}s` : undefined
-                  }}
-                />
-              ))}
+      {/* Mode-Specific Controls */}
+      {isActive && !isConnecting && !isFeedbackRequested && (
+        <div className="bg-slate-900/80 backdrop-blur-sm border-t border-slate-700">
+          {setup.mode === 'voice' ? (
+            <div className="h-20 px-6 py-4 flex items-center justify-center">
+              <div className="flex items-center gap-4">
+                <div className={`flex items-end gap-1 h-8 ${isAgentSpeaking ? 'text-indigo-400' : 'text-slate-500'}`}>
+                  {[...Array(5)].map((_, i) => (
+                    <div 
+                      key={i} 
+                      className={`w-1.5 rounded-full transition-all duration-150 ${isAgentSpeaking ? 'animate-bounce' : ''}`}
+                      style={{ 
+                        height: isAgentSpeaking ? `${Math.random() * 20 + 10}px` : '4px',
+                        animationDelay: isAgentSpeaking ? `${i * 0.1}s` : undefined
+                      }}
+                    />
+                  ))}
+                </div>
+                 <span className="text-sm font-medium text-slate-400">
+                    {isAgentSpeaking ? 'Interviewer is speaking...' : 'Interviewer is listening to you...'}
+                </span>
+              </div>
             </div>
-             <span className="text-sm font-medium text-slate-400">
-                {isAgentSpeaking ? 'Interviewer is speaking...' : 'Interviewer is listening to you...'}
-            </span>
-          </div>
+          ) : (
+            <form onSubmit={handleSendMessage} className="p-4 flex gap-3 max-w-4xl mx-auto w-full">
+              <input
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder="Type your response here..."
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!inputText.trim()}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+              >
+                Send
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </form>
+          )}
         </div>
       )}
     </div>

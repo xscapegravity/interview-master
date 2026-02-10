@@ -201,11 +201,17 @@ wss.on('connection', (ws) => {
             audioQueue.push(data.payload);
           }
       } else if (data.type === 'TEXT') {
-          // Handle text message from client (e.g. for feedback request)
-          console.log('📝 Received TEXT message from client, sending to Gemini:', data.payload.substring(0, 100) + '...');
+          // Handle text message from client (for feedback or chat)
+          console.log('📝 Received TEXT message from client:', data.payload.substring(0, 100) + '...');
           
-          isFeedbackMode = true;
-          clearTimers();
+          if (data.isFeedback) {
+              isFeedbackMode = true;
+              clearTimers();
+              console.log('🏁 Entering feedback mode');
+          } else {
+              // Reset inactivity timer for regular chat turns
+              resetInactivityTimer();
+          }
           
           if (geminiSession) {
              try {
@@ -217,7 +223,7 @@ wss.on('connection', (ws) => {
                    }],
                    turnComplete: true
                 });
-                console.log('✅ Feedback request sent to Gemini session');
+                console.log('✅ Text turn sent to Gemini session');
              } catch (err) {
                 console.error('❌ Error sending TEXT turn to Gemini:', err);
                 ws.send(JSON.stringify({ error: 'Failed to send feedback request to AI.' }));
