@@ -231,19 +231,24 @@ Perform this now. Start with the Conclusion.`;
                     return;
                 }
 
-                // 1. Set up WebSocket
-                ws = new WebSocket('ws://localhost:3001');
+                    // Dynamic WebSocket URL for production
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const host = window.location.host;
+                    const wsUrl = `${protocol}//${host}`;
+                    
+                    console.log(`Connecting to WebSocket server at ${wsUrl} (version ${currentVersion})`);
+                    ws = new WebSocket(wsUrl);
 
-                ws.onopen = async () => {
-                    // Check if this version is still current
-                    if (currentVersion !== sessionVersionRef.current) {
-                        console.log(`Session version ${currentVersion} cancelled at onopen`);
-                        ws?.close();
-                        return;
-                    }
+                    ws.onopen = async () => {
+                        // Check if this version is still current
+                        if (currentVersion !== sessionVersionRef.current) {
+                            console.log(`Session version ${currentVersion} cancelled at onopen`);
+                            ws?.close();
+                            return;
+                        }
 
-                    console.log(`Connected to WebSocket server (version ${currentVersion})`);
-                    wsRef.current = ws;
+                        console.log(`Connected to WebSocket server (version ${currentVersion})`);
+                        wsRef.current = ws;
 
                     const systemInstruction = generateInterviewPrompt(setup);
 

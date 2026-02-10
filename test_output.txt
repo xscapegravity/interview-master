@@ -1,0 +1,71 @@
+
+> interview-master@0.0.0 test
+> vitest run
+
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90mC:/Users/marty/OneDrive/_Code/interview-master[39m
+
+ [32mΓ£ô[39m hooks/feedback-fixes.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+[90mstdout[2m | server/dist/feedback.test.js
+[22m[39m[dotenv@17.2.4] injecting env (0) from .env -- tip: ΓÜÖ∩╕Å  suppress all logs with { quiet: true }
+[dotenv@17.2.4] injecting env (0) from ..\.env -- tip: ≡ƒöæ add access controls to secrets: https://dotenvx.com/ops
+
+[90mstdout[2m | server/feedback.test.ts
+[22m[39m[dotenv@17.2.4] injecting env (0) from .env -- tip: ≡ƒöä add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.4] injecting env (0) from ..\.env -- tip: ΓÜÖ∩╕Å  load multiple .env files with { path: ['.env.local', '.env'] }
+
+[90mstdout[2m | hooks/useLiveInterview.test.ts[2m > [22m[2museLiveInterview - WebSocket Connection[2m > [22m[2mshould connect to ws:// protocol when on http
+[22m[39m≡ƒö╡ [useLiveInterview] Starting session version 0
+
+stderr | hooks/useLiveInterview.test.ts > useLiveInterview - WebSocket Connection > should connect to ws:// protocol when on http
+[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+Failed to initialize interview: TypeError: () => mockWebSocket is not a constructor
+    at new Mock (file:///C:/Users/marty/OneDrive/_Code/interview-master/node_modules/@vitest/spy/dist/index.js:262:27)
+    at connect (C:/Users/marty/OneDrive/_Code/interview-master/hooks/useLiveInterview.ts:240:26)
+
+[90mstdout[2m | hooks/useLiveInterview.test.ts[2m > [22m[2museLiveInterview - WebSocket Connection[2m > [22m[2mshould connect to ws:// protocol when on http
+[22m[39mConnecting to WebSocket server at ws://localhost:3000 (version 0)
+≡ƒö┤ [useLiveInterview] Cleaning up version 0. Reason: Init Catch Error
+
+[90mstdout[2m | hooks/useLiveInterview.test.ts[2m > [22m[2museLiveInterview - WebSocket Connection[2m > [22m[2mshould connect to ws:// protocol when on http
+[22m[39m≡ƒö┤ Cleanup called for CURRENT version 0, incrementing to 1
+≡ƒö┤ [useLiveInterview] Cleaning up version 0. Reason: Effect Cleanup (unmount or dependency change)
+
+[90mstdout[2m | hooks/useLiveInterview.test.ts[2m > [22m[2museLiveInterview - WebSocket Connection[2m > [22m[2mshould connect to wss:// protocol when on https
+[22m[39m≡ƒö╡ [useLiveInterview] Starting session version 0
+
+stderr | hooks/useLiveInterview.test.ts > useLiveInterview - WebSocket Connection > should connect to wss:// protocol when on https
+[vitest] The vi.fn() mock did not use 'function' or 'class' in its implementation, see https://vitest.dev/api/vi#vi-spyon for examples.
+Failed to initialize interview: TypeError: () => mockWebSocket is not a constructor
+    at new Mock (file:///C:/Users/marty/OneDrive/_Code/interview-master/node_modules/@vitest/spy/dist/index.js:262:27)
+    at connect (C:/Users/marty/OneDrive/_Code/interview-master/hooks/useLiveInterview.ts:240:26)
+
+[90mstdout[2m | hooks/useLiveInterview.test.ts[2m > [22m[2museLiveInterview - WebSocket Connection[2m > [22m[2mshould connect to wss:// protocol when on https
+[22m[39mConnecting to WebSocket server at wss://interview-master.uk.r.appspot.com (version 0)
+≡ƒö┤ [useLiveInterview] Cleaning up version 0. Reason: Init Catch Error
+
+ [32mΓ£ô[39m components/SetupForm.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 123[2mms[22m[39m
+[90mstdout[2m | hooks/useLiveInterview.test.ts[2m > [22m[2museLiveInterview - WebSocket Connection[2m > [22m[2mshould connect to wss:// protocol when on https
+[22m[39m≡ƒö┤ Cleanup called for CURRENT version 0, incrementing to 1
+≡ƒö┤ [useLiveInterview] Cleaning up version 0. Reason: Effect Cleanup (unmount or dependency change)
+
+ [32mΓ£ô[39m hooks/useLiveInterview.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 146[2mms[22m[39m
+ [32mΓ£ô[39m App.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 1763[2mms[22m[39m
+     [33m[2mΓ£ô[22m[39m shows setup form by default and can start interview [33m 1075[2mms[22m[39m
+     [33m[2mΓ£ô[22m[39m can exit the interview and return to setup [33m 687[2mms[22m[39m
+[90mstdout[2m | server/dist/feedback.test.js[2m > [22m[2mFeedback API Integration[2m > [22m[2mshould successfully receive a structured feedback response from Gemini
+[22m[39mΓ£à Received response length: [33m2700[39m
+
+ [32mΓ£ô[39m server/dist/feedback.test.js [2m([22m[2m1 test[22m[2m)[22m[33m 18628[2mms[22m[39m
+     [33m[2mΓ£ô[22m[39m should successfully receive a structured feedback response from Gemini [33m 18626[2mms[22m[39m
+[90mstdout[2m | server/feedback.test.ts[2m > [22m[2mFeedback API Integration[2m > [22m[2mshould successfully receive a structured feedback response from Gemini
+[22m[39mΓ£à Received response length: [33m2499[39m
+
+ [32mΓ£ô[39m server/feedback.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 18731[2mms[22m[39m
+     [33m[2mΓ£ô[22m[39m should successfully receive a structured feedback response from Gemini [33m 18729[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m6 passed[39m[22m[90m (6)[39m
+[2m      Tests [22m [1m[32m14 passed[39m[22m[90m (14)[39m
+[2m   Start at [22m 16:40:50
+[2m   Duration [22m 21.16s[2m (transform 534ms, setup 978ms, import 1.05s, tests 39.39s, environment 8.06s)[22m
+

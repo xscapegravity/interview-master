@@ -17,5 +17,6 @@
     "jsx": "react-jsx"
   },
   "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["server"],
   "references": []
 }

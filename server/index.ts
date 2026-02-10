@@ -4,9 +4,15 @@ import { WebSocketServer } from 'ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
-import { INTERVIEW_SETTINGS } from './constants';
+import { INTERVIEW_SETTINGS } from './constants.js';
+
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors()); // Allow requests from the frontend
@@ -249,6 +255,17 @@ wss.on('connection', (ws) => {
       }
     }
   });
+});
+
+
+// Serve static files from the React app
+const distPath = path.join(__dirname, '../../dist');
+app.use(express.static(distPath));
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 server.listen(PORT, () => {

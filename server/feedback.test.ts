@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { GoogleGenAI, Modality } from '@google/genai';
 import dotenv from 'dotenv';
-import { INTERVIEW_SETTINGS } from './constants';
+import { INTERVIEW_SETTINGS } from './constants.js';
 
 import path from 'path';
 
