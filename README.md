@@ -17,11 +17,29 @@ A professional AI-powered interview agent that conducts deep-dive behavioral int
 - A [Gemini API Key](https://aistudio.google.com/app/apikey).
 - A local web server (e.g., [VS Code Live Server](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer) or `npx serve`).
 
-### Running Locally
+#### Running Locally
 
-1. Clone or download the source code to your local machine.
-2. Ensure you are serving the project from a local web server (the API requires a secure context or localhost for microphone access).
-3. The application uses the `process.env.API_KEY` for authentication. If you are using a standard development environment, ensure this is injected.
+1. Install dependencies:
+   ```bash
+   npm install
+   cd server && npm install && cd ..
+   ```
+2. Start the backend server:
+   ```bash
+   cd server && npm run dev
+   ```
+3. Start the frontend:
+   ```bash
+   npm run dev
+   ```
+
+## Testing
+
+The project includes both frontend unit tests and backend integration tests.
+
+- **Run Frontend Tests**: `npm test`
+- **Run Backend Integration Tests**: `npm run test:server`
+  - _Note: Backend tests require a valid `API_KEY` in the `server/.env` file._
 
 ## Project Structure
 

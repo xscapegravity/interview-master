@@ -29,6 +29,7 @@ wss.on('connection', (ws) => {
   let geminiSession: any = null;
   let systemInstructionReceived = false;
   let sessionReady = false;
+  let isFeedbackMode = false;
   const audioQueue: any[] = [];
   let audioMessageCount = 0;
   let inactivityTimer: NodeJS.Timeout | null = null;
@@ -125,16 +126,32 @@ wss.on('connection', (ws) => {
                   }
                 },
                 onmessage: (message: LiveServerMessage) => {
-                  console.log('📨 Gemini message:', JSON.stringify(message).substring(0, 200));
+                  const hasText = !!(message as any).serverContent?.modelTurn?.parts?.some((p: any) => p.text);
+                  const hasAudio = !!(message as any).serverContent?.modelTurn?.parts?.some((p: any) => p.inlineData);
+                  const isComplete = !!((message as any).serverContent?.turnComplete || (message as any).serverContent?.generationComplete);
+                  
+                  console.log(`📨 Gemini response: [Text: ${hasText}, Audio: ${hasAudio}, Complete: ${isComplete}]`);
+                  if (hasText) {
+                    const text = (message as any).serverContent.modelTurn.parts.map((p: any) => p.text).filter(Boolean).join(' ');
+                    console.log('📝 Evaluation text detected:', text.substring(0, 100) + '...');
+                  }
                   
                   // Check if generation is complete (interviewer finished speaking)
                   if ((message as any).serverContent?.generationComplete) {
-                    console.log('🎤 Interviewer finished speaking, starting inactivity timer');
-                    resetInactivityTimer();
+                    console.log('🎤 Interviewer generation complete');
+                    if (!isFeedbackMode) {
+                      resetInactivityTimer();
+                    } else {
+                      clearTimers();
+                    }
                   }
                   
                   // Forward message from Gemini to the client
-                  ws.send(JSON.stringify(message));
+                  try {
+                    ws.send(JSON.stringify(message));
+                  } catch (err) {
+                    console.error('Error sending message to client WS:', err);
+                  }
                 },
                 onerror: (e) => {
                   console.error('Gemini Error:', e);
@@ -161,8 +178,8 @@ wss.on('connection', (ws) => {
           }
           
       } else if (data.type === 'AUDIO') {
-          // Reset inactivity timer when user is speaking
-          if (warningTimer || inactivityTimer) {
+          // Reset inactivity timer when user is speaking, but only if not in feedback mode
+          if (!isFeedbackMode && (warningTimer || inactivityTimer)) {
             clearTimers();
           }
           
@@ -182,6 +199,31 @@ wss.on('connection', (ws) => {
             // Session not ready yet, queue the audio
             console.log(`Queueing audio message (session not ready), queue size: ${audioQueue.length + 1}`);
             audioQueue.push(data.payload);
+          }
+      } else if (data.type === 'TEXT') {
+          // Handle text message from client (e.g. for feedback request)
+          console.log('📝 Received TEXT message from client, sending to Gemini:', data.payload.substring(0, 100) + '...');
+          
+          isFeedbackMode = true;
+          clearTimers();
+          
+          if (geminiSession) {
+             try {
+                // Correct format for Multimodal Live API text content
+                geminiSession.sendClientContent({
+                   turns: [{
+                      role: 'user',
+                      parts: [{ text: data.payload }]
+                   }],
+                   turnComplete: true
+                });
+                console.log('✅ Feedback request sent to Gemini session');
+             } catch (err) {
+                console.error('❌ Error sending TEXT turn to Gemini:', err);
+                ws.send(JSON.stringify({ error: 'Failed to send feedback request to AI.' }));
+             }
+          } else {
+             console.error('❌ Cannot send TEXT: geminiSession is null');
           }
       }
 

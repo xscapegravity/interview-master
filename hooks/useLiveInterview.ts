@@ -29,15 +29,85 @@ export function useLiveInterview(setup: InterviewSetup) {
     const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [micLevel, setMicLevel] = useState(0);
+    const [isFeedbackRequested, setIsFeedbackRequested] = useState(false);
+    const [isFeedbackComplete, setIsFeedbackComplete] = useState(false);
+    const [feedbackTimeout, setFeedbackTimeout] = useState(false);
 
     const wsRef = useRef<WebSocket | null>(null);
     const transcriptBufferRef = useRef({ user: '', model: '' });
     const sessionVersionRef = useRef(0);
+    const feedbackRequestedRef = useRef(false);
+    const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+    const feedbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const feedbackAudioReceivedRef = useRef(false);
+    const feedbackTurnCompleteRef = useRef(false);
+    const outputAudioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
     // The endSession function is now stable and can be safely returned
     const endSession = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.close();
+        }
+    }, []);
+
+    const sendFeedbackRequest = useCallback(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            console.log("📝 Sending feedback request to model");
+            setIsFeedbackRequested(true);
+            feedbackRequestedRef.current = true;
+            
+            // Fix #1: Stop microphone processing
+            if (scriptProcessorRef.current) {
+                console.log("🎤 Disconnecting microphone for feedback mode");
+                scriptProcessorRef.current.onaudioprocess = null;
+            }
+            
+            // Fix #2: Improved structured feedback prompt
+            const feedbackPrompt = `The candidate has requested to end the interview and receive feedback.
+
+Please respond in TWO parts:
+
+1. CONCLUSION: First, naturally conclude the interview. Thank them for their time and say goodbye.
+
+2. FEEDBACK: Then provide structured feedback in this exact format:
+
+**STRENGTHS:**
+- [Strength 1]
+- [Strength 2]
+
+**AREAS FOR IMPROVEMENT:**
+- [Area 1]
+- [Area 2]
+
+Keep the feedback professional, specific, and constructive.`;
+            
+            wsRef.current.send(JSON.stringify({ 
+                type: 'TEXT', 
+                payload: feedbackPrompt
+            }));
+            
+            // Reset feedback tracking refs
+            feedbackAudioReceivedRef.current = false;
+            feedbackTurnCompleteRef.current = false;
+            
+            // Fix #5: Add feedback timeout (90 seconds)
+            // Note: timeout no longer sets error (which would wipe the UI), just marks completion
+            feedbackTimeoutRef.current = setTimeout(() => {
+                console.log("⏱️ Feedback timeout reached — marking feedback complete so user can still access transcript");
+                setFeedbackTimeout(true);
+                // Flush any remaining transcript buffer to messages
+                const {user, model} = transcriptBufferRef.current;
+                if (user.trim() || model.trim()) {
+                    setMessages(prev => {
+                        const newMsgs = [...prev];
+                        if (user.trim()) newMsgs.push({ role: 'user', text: user, timestamp: Date.now() });
+                        if (model.trim()) newMsgs.push({ role: 'model', text: model, timestamp: Date.now() });
+                        return newMsgs;
+                    });
+                    transcriptBufferRef.current = { user: '', model: '' };
+                }
+                setIsFeedbackComplete(true);
+            }, 90000);
         }
     }, []);
 
@@ -50,15 +120,18 @@ export function useLiveInterview(setup: InterviewSetup) {
         let inputAudioContext: AudioContext | null = null;
         let outputAudioContext: AudioContext | null = null;
         let scriptProcessor: ScriptProcessorNode | null = null;
+        // Use the ref-backed set for audio sources so feedback completion logic can check it
+        const outputAudioSources = outputAudioSourcesRef.current;
+        outputAudioSources.clear();
         let mediaStreamSource: MediaStreamAudioSourceNode | null = null;
         let stream: MediaStream | null = null;
-        const outputAudioSources = new Set<AudioBufferSourceNode>();
         let nextStartTime = 0;
         let ws: WebSocket | null = null;
         let micAnalyser: AnalyserNode | null = null;
         let micAnimationFrame: number | null = null;
 
-        const cleanup = () => {
+        const cleanup = (reason: string) => {
+            console.log(`🔴 [useLiveInterview] Cleaning up version ${currentVersion}. Reason: ${reason}`);
             setIsActive(false);
             setIsConnecting(false);
 
@@ -79,6 +152,9 @@ export function useLiveInterview(setup: InterviewSetup) {
                 scriptProcessor.disconnect();
                 scriptProcessor = null;
             }
+            if (scriptProcessorRef.current) {
+                scriptProcessorRef.current = null;
+            }
             if (mediaStreamSource) {
                 mediaStreamSource.disconnect();
                 mediaStreamSource = null;
@@ -98,6 +174,10 @@ export function useLiveInterview(setup: InterviewSetup) {
             if (micAnimationFrame) {
                 cancelAnimationFrame(micAnimationFrame);
                 micAnimationFrame = null;
+            }
+            if (feedbackTimeoutRef.current) {
+                clearTimeout(feedbackTimeoutRef.current);
+                feedbackTimeoutRef.current = null;
             }
             setMicLevel(0);
             outputAudioSources.forEach(s => { try { s.stop(); } catch (e) {} });
@@ -144,14 +224,14 @@ export function useLiveInterview(setup: InterviewSetup) {
                     // Check again after async operation
                     if (currentVersion !== sessionVersionRef.current) {
                         console.log(`Session version ${currentVersion} cancelled after getUserMedia`);
-                        cleanup();
+                        cleanup('Post-getUserMedia Invalidation');
                         return;
                     }
 
                     // Check if WebSocket is still open
                     if (ws?.readyState !== WebSocket.OPEN) {
                         console.log(`WebSocket closed during setup, aborting audio initialization`);
-                        cleanup();
+                        cleanup('WebSocket closed during setup');
                         return;
                     }
 
@@ -160,6 +240,7 @@ export function useLiveInterview(setup: InterviewSetup) {
                     // For production high-performance audio, migration to AudioWorkletNode is recommended.
                     mediaStreamSource = inputAudioContext.createMediaStreamSource(stream);
                     scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
+                    scriptProcessorRef.current = scriptProcessor;
 
                     let audioStarted = false;
                     const systemInstruction = generateInterviewPrompt(setup);
@@ -175,6 +256,9 @@ export function useLiveInterview(setup: InterviewSetup) {
                             ws?.send(JSON.stringify({ type: 'INITIAL_SETUP', payload: systemInstruction }));
                         }
                         
+                        // Don't send audio if feedback is requested
+                         if (feedbackRequestedRef.current) return;
+
                         const inputData = e.inputBuffer.getChannelData(0);
                         const int16 = new Int16Array(inputData.length);
                         for (let i = 0; i < inputData.length; i++) {
@@ -212,6 +296,13 @@ export function useLiveInterview(setup: InterviewSetup) {
                     if (currentVersion !== sessionVersionRef.current) return;
 
                     const message: any = JSON.parse(event.data);
+                    // Descriptive logging to see the actual content of the incoming message
+                    console.log(`📡 [WS Received] Type: ${message.serverContent ? 'Content' : 'Meta'}`, {
+                        text: message.serverContent?.modelTurn?.parts?.map((p: any) => p.text).filter(Boolean).join(' '),
+                        audio: !!message.serverContent?.modelTurn?.parts?.find((p: any) => p.inlineData),
+                        complete: !!(message.serverContent?.turnComplete || message.serverContent?.generationComplete),
+                        raw: message
+                    });
 
                     // Handle warning and timeout messages
                     if (message.type === 'WARNING') {
@@ -226,25 +317,62 @@ export function useLiveInterview(setup: InterviewSetup) {
                         return;
                     }
 
-                    if (message.serverContent?.outputTranscription) {
+                    // Capture direct text parts from the model turn (highest priority for transcript)
+                    const textPart = message.serverContent?.modelTurn?.parts?.find((p: any) => p.text)?.text;
+                    if (textPart) {
+                        // Direct text content takes priority — don't also add outputTranscription
+                        // to avoid doubling up the same content
+                        transcriptBufferRef.current.model += textPart;
+                    } else if (message.serverContent?.outputTranscription) {
+                        // Audio transcription (fallback when no direct text part)
                         transcriptBufferRef.current.model += message.serverContent.outputTranscription.text;
-                    } else if (message.serverContent?.inputTranscription) {
+                    }
+                    
+                    if (message.serverContent?.inputTranscription) {
                         transcriptBufferRef.current.user += message.serverContent.inputTranscription.text;
                     }
 
-                    if (message.serverContent?.turnComplete) {
+                    if (message.serverContent?.turnComplete || message.serverContent?.generationComplete) {
                         const {user, model} = transcriptBufferRef.current;
-                        setMessages(prev => {
-                            const newMsgs = [...prev];
-                            if (user.trim()) newMsgs.push({ role: 'user', text: user, timestamp: Date.now() });
-                            if (model.trim()) newMsgs.push({ role: 'model', text: model, timestamp: Date.now() });
-                            return newMsgs;
-                        });
-                        transcriptBufferRef.current = { user: '', model: '' };
+                        
+                        if (user.trim() || model.trim()) {
+                            setMessages(prev => {
+                                const newMsgs = [...prev];
+                                if (user.trim()) newMsgs.push({ role: 'user', text: user, timestamp: Date.now() });
+                                if (model.trim()) newMsgs.push({ role: 'model', text: model, timestamp: Date.now() });
+                                return newMsgs;
+                            });
+                            transcriptBufferRef.current = { user: '', model: '' };
+                        }
+                        
+                        // Handle feedback completion logic
+                        if (feedbackRequestedRef.current) {
+                            // Clear the timeout since we got a response
+                            if (feedbackTimeoutRef.current) {
+                                clearTimeout(feedbackTimeoutRef.current);
+                                feedbackTimeoutRef.current = null;
+                            }
+                            feedbackTurnCompleteRef.current = true;
+                            
+                            // If no audio was received during feedback, or all audio already finished,
+                            // mark feedback as complete immediately.
+                            // Otherwise, the onended handler will do it.
+                            if (!feedbackAudioReceivedRef.current || outputAudioSources.size === 0) {
+                                console.log('✅ Feedback turn complete — no outstanding audio, marking complete');
+                                setIsFeedbackComplete(true);
+                            } else {
+                                console.log('⏳ Feedback turn complete — waiting for audio playback to finish');
+                            }
+                        }
                     }
 
                     const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (base64Audio && outputAudioContext) {
+                        // Track that audio was received during feedback mode
+                        if (feedbackRequestedRef.current) {
+                            feedbackAudioReceivedRef.current = true;
+                        }
+                        
                         setIsAgentSpeaking(true);
                         const ctx = outputAudioContext;
                         nextStartTime = Math.max(nextStartTime, ctx.currentTime);
@@ -267,6 +395,11 @@ export function useLiveInterview(setup: InterviewSetup) {
                             outputAudioSources.delete(source);
                             if (outputAudioSources.size === 0) {
                                 setIsAgentSpeaking(false);
+                                // If feedback turn already completed and all audio finished, mark complete
+                                if (feedbackRequestedRef.current && feedbackTurnCompleteRef.current) {
+                                    console.log('✅ All feedback audio done playing — marking feedback complete');
+                                    setIsFeedbackComplete(true);
+                                }
                             }
                         };
 
@@ -286,20 +419,20 @@ export function useLiveInterview(setup: InterviewSetup) {
                     if (currentVersion !== sessionVersionRef.current) return;
                     console.error("WebSocket Error:", err);
                     setError("Connection failed. Please ensure the server is running.");
-                    cleanup();
+                    cleanup('WebSocket Error');
                 };
 
                 ws.onclose = () => {
                     if (currentVersion !== sessionVersionRef.current) return;
                     console.log(`WebSocket connection closed (version ${currentVersion})`);
-                    cleanup();
+                    cleanup('WebSocket Close');
                 };
 
             } catch (err: any) {
                 if (currentVersion !== sessionVersionRef.current) return;
                 console.error("Failed to initialize interview:", err);
                 setError(err.message || "Failed to initialize interview session.");
-                cleanup();
+                cleanup('Init Catch Error');
             }
         };
 
@@ -313,12 +446,12 @@ export function useLiveInterview(setup: InterviewSetup) {
             } else {
                 console.log(`🟡 Cleanup called for OLD version ${currentVersion}, current is ${sessionVersionRef.current} (no increment)`);
             }
-            cleanup();
+            cleanup('Effect Cleanup (unmount or dependency change)');
         };
 
     // We only want this effect to re-run if the core interview setup changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setup]);
 
-    return { messages, isConnecting, isActive, isAgentSpeaking, error, micLevel, endSession };
+    return { messages, isConnecting, isActive, isAgentSpeaking, error, micLevel, endSession, sendFeedbackRequest, isFeedbackRequested, isFeedbackComplete, feedbackTimeout };
 }
